@@ -2,22 +2,26 @@
 import puppeteer from 'puppeteer';
 
 /**
- * Generates an image from Craiyon.
- * The entire process (Cloudflare challenge + API call) runs inside Puppeteer.
+ * Generates an image from Craiyon using Puppeteer's bundled Chromium.
+ * Returns the image as a base64 data URL (ready for server responses).
  * @param {string} prompt - The image description.
- * @returns {Promise<string>} - The URL of the generated image.
+ * @returns {Promise<string>} - Data URL of the generated image.
  */
 async function generateCraiyonImage(prompt) {
-  const browser = await puppeteer.launch({
-    headless: true,          // Set to false to watch
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled'
-    ]
-  });
+  let browser = null;
 
   try {
+    // 1. Launch Puppeteer using its bundled Chromium – no system Chrome needed.
+    browser = await puppeteer.launch({
+      headless: true,          // or 'new' for newer Puppeteer versions
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',    // fixes /dev/shm issues on some servers
+        '--disable-blink-features=AutomationControlled',
+      ],
+    });
+
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent(
@@ -27,37 +31,36 @@ async function generateCraiyonImage(prompt) {
     console.log('🌐 Navigating to Craiyon to solve Cloudflare challenge...');
     await page.goto('https://www.craiyon.com/en', {
       waitUntil: 'networkidle2',
-      timeout: 60000
+      timeout: 60000,
     });
 
-    // Wait for the main UI to be visible (ensures challenge is passed)
+    // Wait for the main UI to confirm the challenge is passed.
     await page.waitForSelector('input[type="text"]', {
       timeout: 30000,
-      visible: true
+      visible: true,
     }).catch(() => {
-      console.warn('⚠️ Input field not found – but continuing.');
+      console.warn('⚠️ Input field not found – but continuing anyway.');
     });
 
-    console.log('✅ Page loaded – now calling the API from the browser...');
+    console.log('✅ Page ready – calling the API from the browser...');
 
-    // 2. Execute the API call inside the browser page
-    const imageUrl = await page.evaluate(async (prompt) => {
+    // 2. Execute the API call inside the browser context.
+    const result = await page.evaluate(async (prompt) => {
       const payload = {
         prompt,
         negative_prompt: '',
         model: 'auto',
         aspect_ratio: 'auto',
-        n_images: 1
+        n_images: 1,
       };
 
-      const response = await fetch('/api/image/draw', {  // relative URL – works because we're on craiyon.com
+      const response = await fetch('/api/image/draw', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': '*/*',
           'Origin': 'https://www.craiyon.com',
           'Referer': 'https://www.craiyon.com/en',
-          // No need to set Cookie – browser handles it automatically
         },
         body: JSON.stringify(payload),
       });
@@ -69,19 +72,16 @@ async function generateCraiyonImage(prompt) {
 
       const data = await response.json();
       if (data.results && data.results.length > 0) {
-        return data.results[0].url;
+        return { url: data.results[0].url };
       } else {
-        throw new Error('No image URL in response.');
+        throw new Error('No image URL in the response.');
       }
     }, prompt);
 
-    console.log('✅ Image generated!');
+    console.log('✅ Image generated – downloading...');
 
-    if (imageUrl.startsWith('data:')) {
-      return imageUrl;
-    }
-
-    const imageResponse = await fetch(imageUrl);
+    // 3. Download the image and convert to base64.
+    const imageResponse = await fetch(result.url);
     if (!imageResponse.ok) {
       throw new Error(`Image download failed (${imageResponse.status})`);
     }
@@ -89,15 +89,39 @@ async function generateCraiyonImage(prompt) {
     const contentType = imageResponse.headers.get('content-type') || 'image/png';
     const arrayBuffer = await imageResponse.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
-    return `data:${contentType};base64,${base64}`;
+    const dataUrl = `data:${contentType};base64,${base64}`;
+
+    return dataUrl;
 
   } catch (error) {
-    // Ensure browser is closed on error
-    await browser.close().catch(() => {});
+    console.error('❌ Error in generateCraiyonImage:', error.message);
+    // Rethrow so the caller can handle it.
     throw error;
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+      console.log('🔄 Browser closed.');
+    }
   }
+}
+
+// ----- Example usage (for testing) -----
+async function main() {
+  try {
+    const imageDataUrl = await generateCraiyonImage('a dog with a red hat and a smile');
+    console.log('🖼️ Image generated (data URL length):', imageDataUrl.length);
+    // To save the image to a file:
+    // const base64Data = imageDataUrl.split(',')[1];
+    // require('fs').writeFileSync('output.png', base64Data, 'base64');
+    // console.log('✅ Image saved as output.png');
+  } catch (error) {
+    console.error('❌ Failed:', error.message);
+  }
+}
+
+// Run the example if this script is executed directly.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main();
 }
 
 export default generateCraiyonImage;
