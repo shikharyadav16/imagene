@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Imagene — AI Image Generator</title>
+    <script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+    <style>
+        @import url('https://cdnjs.cloudflare.com/ajax/libs/inter-ui/3.19.3/inter.min.css');
+
+        :root {
+            --bg: #f5f5f7;
+            --surface: #ffffff;
+            --surface-2: #fbfbfd;
+            --ink: #1d1d1f;
+            --ink-secondary: #6e6e73;
+            --hairline: rgba(0, 0, 0, 0.08);
+            --hairline-strong: rgba(0, 0, 0, 0.14);
+            --black: #000000;
+            --white: #ffffff;
+            --shadow: 0 20px 60px rgba(0, 0, 0, 0.10);
+            --shadow-soft: 0 2px 20px rgba(0, 0, 0, 0.06);
+            --radius-lg: 28px;
+            --radius-md: 18px;
+            --radius-sm: 12px;
+            --ease: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        [data-theme="dark"] {
+            --bg: #000000;
+            --surface: #1d1d1f;
+            --surface-2: #161617;
+            --ink: #f5f5f7;
+            --ink-secondary: #98989d;
+            --hairline: rgba(255, 255, 255, 0.10);
+            --hairline-strong: rgba(255, 255, 255, 0.18);
+            --black: #ffffff;
+            --white: #000000;
+            --shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+            --shadow-soft: 0 2px 20px rgba(0, 0, 0, 0.35);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html {
+            -webkit-text-size-adjust: 100%;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            transition: background 0.5s var(--ease), color 0.5s var(--ease);
+            overflow-x: hidden;
+        }
+
+        a {
+            color: inherit;
+        }
+
+        /* ---------- Nav ---------- */
+        .nav {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px max(20px, env(safe-area-inset-left));
+            backdrop-filter: saturate(180%) blur(20px);
+            -webkit-backdrop-filter: saturate(180%) blur(20px);
+            background: color-mix(in srgb, var(--bg) 72%, transparent);
+            border-bottom: 1px solid var(--hairline);
+        }
+
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+        }
+
+        .nav-mark {
+            width: 20px;
+            height: 20px;
+            border-radius: 6px;
+            background: var(--ink);
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .nav-mark::before {
+            content: '';
+            position: absolute;
+            inset: 5px;
+            border-radius: 3px;
+            background: var(--bg);
+        }
+
+        .theme-toggle {
+            appearance: none;
+            border: 1px solid var(--hairline-strong);
+            background: var(--surface);
+            color: var(--ink);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s var(--ease), border-color 0.2s;
+        }
+
+        .theme-toggle:hover {
+            border-color: var(--hairline-strong);
+            transform: scale(1.06);
+        }
+
+        .theme-toggle:active {
+            transform: scale(0.94);
+        }
+
+        .theme-toggle i {
+            font-size: 16px;
+        }
+
+        /* ---------- Hero ---------- */
+        .hero {
+            position: relative;
+            padding: 84px 20px 40px;
+            text-align: center;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: var(--ink-secondary);
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            padding: 6px 14px;
+            border-radius: 100px;
+            margin-bottom: 28px;
+        }
+
+        .eyebrow .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #7c7c7c, #1d1d1f);
+            animation: pulse 2.4s ease-in-out infinite;
+        }
+
+        [data-theme="dark"] .eyebrow .dot {
+            background: linear-gradient(135deg, #d1d1d6, #ffffff);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.4;
+                transform: scale(0.8);
+            }
+        }
+
+        h1 {
+            font-size: clamp(2.6rem, 7vw, 4.6rem);
+            line-height: 1.05;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            margin: 0 0 18px;
+        }
+
+        h1 em {
+            font-style: normal;
+            background: linear-gradient(135deg, var(--ink) 0%, var(--ink-secondary) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .sub {
+            font-size: clamp(1.05rem, 2vw, 1.3rem);
+            color: var(--ink-secondary);
+            max-width: 560px;
+            margin: 0 auto;
+            line-height: 1.5;
+            font-weight: 400;
+        }
+
+        /* ---------- Composer ---------- */
+        .composer {
+            max-width: 720px;
+            margin: 48px auto 0;
+            padding: 0 20px;
+        }
+
+        .composer-card {
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            border-radius: var(--radius-lg);
+            padding: 10px 10px 10px 22px;
+            box-shadow: var(--shadow-soft);
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            transition: box-shadow 0.3s var(--ease), border-color 0.3s var(--ease);
+        }
+
+        .composer-card:focus-within {
+            border-color: var(--hairline-strong);
+            box-shadow: var(--shadow);
+        }
+
+        textarea#prompt {
+            flex: 1;
+            border: none;
+            outline: none;
+            resize: none;
+            background: transparent;
+            color: var(--ink);
+            font-family: inherit;
+            font-size: 17px;
+            line-height: 1.5;
+            padding: 12px 0;
+            min-height: 26px;
+            max-height: 50px;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        textarea#prompt::-webkit-scrollbar {
+            display: none;
+        }
+
+        textarea#prompt::placeholder {
+            color: var(--ink-secondary);
+        }
+
+        .generate-btn {
+            flex-shrink: 0;
+            border: none;
+            background: var(--ink);
+            color: var(--bg);
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            padding: 14px 24px;
+            border-radius: 100px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: transform 0.15s var(--ease), opacity 0.2s;
+            white-space: nowrap;
+        }
+
+        .generate-btn:hover {
+            transform: scale(1.03);
+        }
+
+        .generate-btn:active {
+            transform: scale(0.97);
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .generate-btn i {
+            font-size: 15px;
+        }
+
+        .hint-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 16px;
+        }
+
+        .chip {
+            font-size: 13px;
+            color: var(--ink-secondary);
+            background: transparent;
+            border: 1px solid var(--hairline);
+            padding: 7px 14px;
+            border-radius: 100px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s, background 0.2s;
+        }
+
+        .chip:hover {
+            border-color: var(--hairline-strong);
+            color: var(--ink);
+            background: var(--surface);
+        }
+
+        /* ---------- Stage ---------- */
+        .stage {
+            max-width: 780px;
+            margin: 56px auto 120px;
+            padding: 0 20px;
+        }
+
+        .stage-frame {
+            position: relative;
+            border-radius: var(--radius-lg);
+            background: var(--surface);
+            border: 1px solid var(--hairline);
+            overflow: hidden;
+            aspect-ratio: 1 / 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .stage-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            color: var(--ink-secondary);
+            padding: 40px;
+            text-align: center;
+            z-index: 1;
+        }
+
+        .stage-empty i {
+            font-size: 40px;
+            opacity: 0.5;
+        }
+
+        .stage-empty span {
+            font-size: 14px;
+        }
+
+        .result-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transform: scale(1.04);
+            transition: opacity 0.7s var(--ease), transform 0.9s var(--ease);
+        }
+
+        .result-img.show {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* aperture loader */
+        .loader {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            z-index: 2;
+        }
+
+        .loader.active {
+            display: flex;
+        }
+
+        .aperture {
+            width: 64px;
+            height: 64px;
+            position: relative;
+        }
+
+        .blade {
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            border: 2px solid var(--hairline-strong);
+        }
+
+        .blade::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: 50%;
+            width: 2px;
+            height: 14px;
+            background: var(--ink);
+            transform-origin: 1px 34px;
+        }
+
+        .blade:nth-child(1) {
+            animation: spin 1.6s linear infinite;
+        }
+
+        .blade:nth-child(2) {
+            animation: spin 2.4s linear infinite reverse;
+            opacity: 0.4;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loader-text {
+            font-size: 14px;
+            color: var(--ink-secondary);
+            min-height: 20px;
+        }
+
+        .stage-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 18px;
+            opacity: 0;
+            transform: translateY(6px);
+            transition: opacity 0.5s var(--ease) 0.1s, transform 0.5s var(--ease) 0.1s;
+        }
+
+        .stage-meta.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .stage-meta .prompt-echo {
+            font-size: 14px;
+            color: var(--ink-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .icon-btn {
+            flex-shrink: 0;
+            border: 1px solid var(--hairline);
+            background: var(--surface);
+            color: var(--ink);
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.15s var(--ease), border-color 0.2s;
+            text-decoration: none;
+        }
+
+        .icon-btn:hover {
+            border-color: var(--hairline-strong);
+            transform: scale(1.06);
+        }
+
+        .icon-btn i {
+            font-size: 16px;
+        }
+
+        .error-banner {
+            display: none;
+            max-width: 720px;
+            margin: 20px auto 0;
+            padding: 14px 18px;
+            border-radius: var(--radius-sm);
+            background: var(--surface);
+            border: 1px solid var(--hairline-strong);
+            color: var(--ink);
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .error-banner.show {
+            display: block;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px 20px 50px;
+            color: var(--ink-secondary);
+            font-size: 12px;
+        }
+
+        @media (max-width: 560px) {
+            .composer-card {
+                align-items: stretch;
+                padding: 8px 8px 8px 18px;
+            }
+
+            .generate-btn {
+                padding: 12px 18px;
+            }
+
+            .hero {
+                padding-top: 56px;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                animation-duration: 0.001ms !important;
+                transition-duration: 0.001ms !important;
+            }
+        }
+
+        :focus-visible {
+            outline: 2px solid var(--ink);
+            outline-offset: 2px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav class="nav">
+        <div class="nav-brand">
+            <span class="nav-mark"></span>
+            Imagene
+        </div>
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
+            <i class="ph ph-sun" id="themeIcon"></i>
+        </button>
+    </nav>
+
+    <section class="hero">
+        <span class="eyebrow"><span class="dot"></span> Generate in seconds</span>
+        <h1>Describe it.<br><em>Watch it appear.</em></h1>
+        <p class="sub">Type anything you can picture. Imagene turns your words into an image, right here.</p>
+    </section>
+
+    <div class="composer">
+        <div class="composer-card">
+            <textarea id="prompt" rows="1" placeholder="A lighthouse at dawn, painted in soft watercolor…"
+                maxlength="600"></textarea>
+            <button class="generate-btn" id="generateBtn">
+                <i class="ph ph-arrow-right" id="generateIcon"></i>
+                <span id="btnLabel">Generate</span>
+            </button>
+        </div>
+        <div class="hint-row">
+            <button class="chip" data-prompt="A cat astronaut floating above the moon, cinematic lighting">Cat
+                astronaut</button>
+            <button class="chip" data-prompt="Minimalist mountain range at sunset, flat design">Mountain sunset</button>
+            <button class="chip" data-prompt="Vintage motorcycle in a rainy neon city street">Neon city ride</button>
+            <button class="chip" data-prompt="A cup of coffee on a wooden table, soft morning light">Morning
+                coffee</button>
+        </div>
+        <div class="error-banner" id="errorBanner"></div>
+    </div>
+
+    <div class="stage">
+        <div class="stage-frame" id="stageFrame">
+            <div class="stage-empty" id="stageEmpty">
+                <i class="ph ph-image"></i>
+                <span>Your image will appear here</span>
+            </div>
+            <div class="loader" id="loader">
+                <div class="aperture">
+                    <div class="blade"></div>
+                    <div class="blade"></div>
+                </div>
+                <div class="loader-text" id="loaderText">Imagining…</div>
+            </div>
+            <img class="result-img" id="resultImg" alt="Generated image" />
+        </div>
+        <div class="stage-meta" id="stageMeta">
+            <div class="prompt-echo" id="promptEcho"></div>
+            <a class="icon-btn" id="downloadBtn" download="Imagene.png" aria-label="Download image">
+                <i class="ph ph-download-simple"></i>
+            </a>
+        </div>
+    </div>
+
+    <footer>Imagene — powered by your own imagination.</footer>
+
+    <script>
+        // ---- theme ----
+        const root = document.documentElement;
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        let theme = localStorage.getItem('imagine-theme') || (prefersDark ? 'dark' : 'light');
+
+        function applyTheme(t) {
+            theme = t;
+            if (t === 'dark') { root.setAttribute('data-theme', 'dark'); }
+            else { root.removeAttribute('data-theme'); }
+            localStorage.setItem('imagine-theme', t);
+            themeIcon.className = t === 'dark' ? 'ph ph-moon' : 'ph ph-sun';
+        }
+        applyTheme(theme);
+        themeToggle.addEventListener('click', () => applyTheme(theme === 'dark' ? 'light' : 'dark'));
+
+        // ---- textarea autosize ----
+        const promptEl = document.getElementById('prompt');
+        promptEl.addEventListener('input', () => {
+            promptEl.style.height = 'auto';
+            promptEl.style.height = Math.min(promptEl.scrollHeight, 160) + 'px';
+        });
+
+        // ---- chips ----
+        document.querySelectorAll('.chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                promptEl.value = chip.dataset.prompt;
+                promptEl.dispatchEvent(new Event('input'));
+                promptEl.focus();
+            });
+        });
+
+        // ---- generation ----
+        const generateBtn = document.getElementById('generateBtn');
+        const btnLabel = document.getElementById('btnLabel');
+        const stageEmpty = document.getElementById('stageEmpty');
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loaderText');
+        const resultImg = document.getElementById('resultImg');
+        const stageMeta = document.getElementById('stageMeta');
+        const promptEcho = document.getElementById('promptEcho');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const errorBanner = document.getElementById('errorBanner');
+
+        const loaderMessages = ['Imagining…', 'Mixing pixels…', 'Adding detail…', 'Almost there…'];
+        let loaderInterval;
+
+        function setLoading(isLoading) {
+            generateBtn.disabled = isLoading;
+            promptEl.disabled = isLoading;
+            btnLabel.textContent = isLoading ? 'Generating' : 'Generate';
+            if (isLoading) {
+                stageEmpty.style.display = 'none';
+                resultImg.classList.remove('show');
+                loader.classList.add('active');
+                stageMeta.classList.remove('show');
+                errorBanner.classList.remove('show');
+                let i = 0;
+                loaderText.textContent = loaderMessages[0];
+                loaderInterval = setInterval(() => {
+                    i = (i + 1) % loaderMessages.length;
+                    loaderText.textContent = loaderMessages[i];
+                }, 1400);
+            } else {
+                loader.classList.remove('active');
+                clearInterval(loaderInterval);
+            }
+        }
+
+        function showError(message) {
+            errorBanner.textContent = message;
+            errorBanner.classList.add('show');
+            stageEmpty.style.display = 'flex';
+        }
+
+        async function generateImage() {
+            const prompt = promptEl.value.trim();
+            if (!prompt) {
+                promptEl.focus();
+                return;
+            }
+
+            setLoading(true);
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+
+                if (!response.ok) {
+                    throw new Error('The server returned an error (' + response.status + ').');
+                }
+
+                const contentType = response.headers.get('content-type') || '';
+                const data = await response.json();
+                let imageUrl = data.imageUrl;
+
+                // if (contentType.includes('application/json')) {
+                //     const data = await response.json();
+                //     const raw = data.image || data.url || data.image_url || data.data;
+                //     if (!raw) throw new Error('No image was returned.');
+                //     imageUrl = raw.startsWith('http') || raw.startsWith('data:')
+                //         ? raw
+                //         : 'data:image/png;base64,' + raw;
+                // } else {
+                //     const blob = await response.blob();
+                //     imageUrl = URL.createObjectURL(blob);
+                // }
+
+                resultImg.onload = () => {
+                    setLoading(false);
+                    stageEmpty.style.display = 'none';
+                    resultImg.classList.add('show');
+                    stageMeta.classList.add('show');
+                };
+                resultImg.src = imageUrl;
+                promptEcho.textContent = prompt;
+                downloadBtn.href = imageUrl;
+                downloadBtn.setAttribute('download', 'Imagene.png');
+
+            } catch (err) {
+                setLoading(false);
+                showError(err.message || 'Something went wrong. Please try again.');
+            }
+        }
+
+        generateBtn.addEventListener('click', generateImage);
+        promptEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                generateImage();
+            }
+        });
+    </script>
+
+</body>
+
+</html>
