@@ -32,7 +32,7 @@ function getChromePath() {
   return undefined;
 }
 
-export async function generateCraiyonImage(prompt) {
+export default async function generateCraiyonImage(prompt) {
   let browser = null;
   try {
     const chromePath = getChromePath();
