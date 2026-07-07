@@ -1,32 +1,42 @@
 // services/generate.js
-import puppeteer from 'puppeteer';   // ✅ Use full package
+import puppeteer from 'puppeteer';   // ✅ Full package
 import fs from 'fs';
 import path from 'path';
 
-function findChromeExecutable() {
-  // On Render, look for the installed Chromium
-  if (process.env.RENDER) {
-    const baseDir = '/opt/render/.cache/puppeteer/chrome';
-    if (fs.existsSync(baseDir)) {
-      const dirs = fs.readdirSync(baseDir).filter(d => d.startsWith('linux-'));
-      if (dirs.length > 0) {
-        const versionDir = dirs.sort().reverse()[0];
-        const exePath = path.join(baseDir, versionDir, 'chrome-linux64', 'chrome');
-        if (fs.existsSync(exePath)) {
-          console.log(`✅ Found Chrome at: ${exePath}`);
-          return exePath;
-        }
+function findChromeOnRender() {
+  const baseDir = '/opt/render/.cache/puppeteer/chrome';
+  if (fs.existsSync(baseDir)) {
+    const dirs = fs.readdirSync(baseDir).filter(d => d.startsWith('linux-'));
+    if (dirs.length > 0) {
+      // Sort to get the latest version
+      const latest = dirs.sort().reverse()[0];
+      const exePath = path.join(baseDir, latest, 'chrome-linux64', 'chrome');
+      if (fs.existsSync(exePath)) {
+        console.log(`✅ Found Chrome at: ${exePath}`);
+        return exePath;
       }
     }
   }
-  // For local development, return undefined to let Puppeteer use its bundled Chromium
+  // Fallback: check common system paths
+  const common = ['/usr/bin/google-chrome', '/usr/bin/chromium-browser'];
+  for (const p of common) {
+    if (fs.existsSync(p)) {
+      console.log(`✅ Found Chrome at: ${p}`);
+      return p;
+    }
+  }
   return undefined;
 }
 
 export default async function generateCraiyonImage(prompt) {
   let browser = null;
   try {
-    const executablePath = findChromeExecutable();
+    // 1. Determine executable path
+    let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH; // from env
+    if (!executablePath) {
+      executablePath = findChromeOnRender();
+    }
+
     const launchOptions = {
       headless: true,
       args: [
@@ -38,9 +48,11 @@ export default async function generateCraiyonImage(prompt) {
     };
     if (executablePath) {
       launchOptions.executablePath = executablePath;
+      console.log(`🚀 Using Chrome: ${executablePath}`);
+    } else {
+      console.warn('⚠️ No Chrome found – Puppeteer will try its bundled version.');
     }
 
-    console.log('🚀 Launching browser...');
     browser = await puppeteer.launch(launchOptions);
 
     const page = await browser.newPage();
