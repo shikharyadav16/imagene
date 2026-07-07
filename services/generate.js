@@ -1,26 +1,108 @@
 // services/generate.js
-import puppeteer from 'puppeteer-core';
+import puppeteer from 'puppeteer';
+import fs from 'fs';
+import { execSync } from 'child_process';
 
 /**
- * Generates an image from Craiyon using Render's built‑in Chrome.
- * @param {string} prompt - Text description of the image.
- * @returns {Promise<string>} - Base64 data URL of the generated image.
+ * Finds the Chrome executable on the system.
+ * Returns the path if found, otherwise undefined.
  */
-export default async function generateCraiyonImage(prompt) {
+function findChromeExecutable() {
+  // 1. Check common environment variables
+  const envPaths = [
+    process.env.CHROME_PATH,
+    process.env.GOOGLE_CHROME_BIN,
+    process.env.CHROMIUM_PATH,
+  ].filter(Boolean);
+
+  for (const path of envPaths) {
+    if (fs.existsSync(path)) {
+      console.log(`✅ Found Chrome via environment variable: ${path}`);
+      return path;
+    }
+  }
+
+  // 2. Use `which` command (Linux/macOS) to find Chrome
+  try {
+    const whichPaths = ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium'];
+    for (const cmd of whichPaths) {
+      try {
+        const resolved = execSync(`which ${cmd}`, { encoding: 'utf8' }).trim();
+        if (resolved && fs.existsSync(resolved)) {
+          console.log(`✅ Found Chrome via 'which': ${resolved}`);
+          return resolved;
+        }
+      } catch (_) {
+        // Command not found, continue
+      }
+    }
+  } catch (_) {
+    // `which` not available
+  }
+
+  // 3. Check common installation paths (Linux, Render)
+  const commonPaths = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/usr/local/bin/chrome',
+    '/opt/google/chrome/chrome',
+  ];
+
+  for (const path of commonPaths) {
+    if (fs.existsSync(path)) {
+      console.log(`✅ Found Chrome at common path: ${path}`);
+      return path;
+    }
+  }
+
+  // 4. If on Windows, try default installation path
+  if (process.platform === 'win32') {
+    const winPaths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    ];
+    for (const path of winPaths) {
+      if (fs.existsSync(path)) {
+        console.log(`✅ Found Chrome at Windows path: ${path}`);
+        return path;
+      }
+    }
+  }
+
+  console.warn('⚠️ Chrome executable not found. Will use Puppeteer\'s bundled Chromium.');
+  return undefined;
+}
+
+/**
+ * Generates an image from Craiyon.
+ * @param {string} prompt - Image description.
+ * @returns {Promise<string>} - Base64 data URL of the image.
+ */
+export async function generateCraiyonImage(prompt) {
   let browser = null;
 
   try {
-    // Launch with Render's Chrome executable
-    browser = await puppeteer.launch({
-      executablePath: '/usr/bin/google-chrome-stable', // Render's path
+    const executablePath = findChromeExecutable();
+    const launchOptions = {
       headless: true,
       args: [
-        '--no-sandbox',                 // required on Linux servers
+        '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',      // avoids memory issues on /dev/shm
+        '--disable-dev-shm-usage',
         '--disable-blink-features=AutomationControlled',
       ],
-    });
+    };
+
+    // If we found a system Chrome, use it
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+    }
+    // Otherwise, Puppeteer will use its bundled Chromium (must be installed)
+
+    console.log(`🚀 Launching browser with${executablePath ? ` executable: ${executablePath}` : ' bundled Chromium'}...`);
+    browser = await puppeteer.launch(launchOptions);
 
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
@@ -34,17 +116,15 @@ export default async function generateCraiyonImage(prompt) {
       timeout: 60000,
     });
 
-    // Wait for the main UI to confirm the challenge is passed
     await page.waitForSelector('input[type="text"]', {
       timeout: 30000,
       visible: true,
     }).catch(() => {
-      console.warn('⚠️ Input field not found – but continuing anyway.');
+      console.warn('⚠️ Input field not found – continuing anyway.');
     });
 
     console.log('✅ Page ready – calling the API from the browser...');
 
-    // Perform the API request inside the browser context
     const result = await page.evaluate(async (prompt) => {
       const payload = {
         prompt,
@@ -80,7 +160,6 @@ export default async function generateCraiyonImage(prompt) {
 
     console.log('✅ Image generated – downloading...');
 
-    // Download the image and convert to base64 data URL
     const imageResponse = await fetch(result.url);
     if (!imageResponse.ok) {
       throw new Error(`Image download failed (${imageResponse.status})`);
@@ -89,13 +168,12 @@ export default async function generateCraiyonImage(prompt) {
     const contentType = imageResponse.headers.get('content-type') || 'image/png';
     const arrayBuffer = await imageResponse.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
-    const dataUrl = `data:${contentType};base64,${base64}`;
 
-    return dataUrl;
+    return `data:${contentType};base64,${base64}`;
 
   } catch (error) {
     console.error('❌ Error in generateCraiyonImage:', error.message);
-    throw error; // rethrow for the caller to handle
+    throw error;
   } finally {
     if (browser) {
       await browser.close();
