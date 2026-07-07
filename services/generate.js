@@ -80,7 +80,7 @@ function findChromeExecutable() {
  * @param {string} prompt - Image description.
  * @returns {Promise<string>} - Base64 data URL of the image.
  */
-export async function generateCraiyonImage(prompt) {
+export default async function generateCraiyonImage(prompt) {
   let browser = null;
 
   try {
