@@ -1,24 +1,21 @@
 // craiyon.js
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer';  // full package – includes Chromium
 
 /**
  * Generates an image from Craiyon using Puppeteer's bundled Chromium.
- * Returns the image as a base64 data URL (ready for server responses).
  * @param {string} prompt - The image description.
- * @returns {Promise<string>} - Data URL of the generated image.
+ * @returns {Promise<string>} - Base64 data URL of the image.
  */
 async function generateCraiyonImage(prompt) {
   let browser = null;
 
   try {
-    // 1. Launch Puppeteer using its bundled Chromium – no system Chrome needed.
+    // Launch with standard args (no need for --no-sandbox on Windows)
     browser = await puppeteer.launch({
-      headless: true,          // or 'new' for newer Puppeteer versions
+      headless: true,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',    // fixes /dev/shm issues on some servers
         '--disable-blink-features=AutomationControlled',
+        // '--no-sandbox' is not needed on Windows
       ],
     });
 
@@ -28,23 +25,17 @@ async function generateCraiyonImage(prompt) {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
     );
 
-    console.log('🌐 Navigating to Craiyon to solve Cloudflare challenge...');
+    console.log('🌐 Navigating to Craiyon...');
     await page.goto('https://www.craiyon.com/en', {
       waitUntil: 'networkidle2',
       timeout: 60000,
     });
 
-    // Wait for the main UI to confirm the challenge is passed.
-    await page.waitForSelector('input[type="text"]', {
-      timeout: 30000,
-      visible: true,
-    }).catch(() => {
-      console.warn('⚠️ Input field not found – but continuing anyway.');
-    });
+    await page.waitForSelector('input[type="text"]', { timeout: 30000, visible: true })
+      .catch(() => console.warn('⚠️ Input field not found – continuing.'));
 
-    console.log('✅ Page ready – calling the API from the browser...');
+    console.log('✅ Page ready – calling API...');
 
-    // 2. Execute the API call inside the browser context.
     const result = await page.evaluate(async (prompt) => {
       const payload = {
         prompt,
@@ -73,14 +64,12 @@ async function generateCraiyonImage(prompt) {
       const data = await response.json();
       if (data.results && data.results.length > 0) {
         return { url: data.results[0].url };
-      } else {
-        throw new Error('No image URL in the response.');
       }
+      throw new Error('No image URL in response.');
     }, prompt);
 
     console.log('✅ Image generated – downloading...');
 
-    // 3. Download the image and convert to base64.
     const imageResponse = await fetch(result.url);
     if (!imageResponse.ok) {
       throw new Error(`Image download failed (${imageResponse.status})`);
@@ -89,13 +78,11 @@ async function generateCraiyonImage(prompt) {
     const contentType = imageResponse.headers.get('content-type') || 'image/png';
     const arrayBuffer = await imageResponse.arrayBuffer();
     const base64 = Buffer.from(arrayBuffer).toString('base64');
-    const dataUrl = `data:${contentType};base64,${base64}`;
 
-    return dataUrl;
+    return `data:${contentType};base64,${base64}`;
 
   } catch (error) {
-    console.error('❌ Error in generateCraiyonImage:', error.message);
-    // Rethrow so the caller can handle it.
+    console.error('❌ Error:', error.message);
     throw error;
   } finally {
     if (browser) {
@@ -105,23 +92,11 @@ async function generateCraiyonImage(prompt) {
   }
 }
 
-// ----- Example usage (for testing) -----
-async function main() {
-  try {
-    const imageDataUrl = await generateCraiyonImage('a dog with a red hat and a smile');
-    console.log('🖼️ Image generated (data URL length):', imageDataUrl.length);
-    // To save the image to a file:
-    // const base64Data = imageDataUrl.split(',')[1];
-    // require('fs').writeFileSync('output.png', base64Data, 'base64');
-    // console.log('✅ Image saved as output.png');
-  } catch (error) {
-    console.error('❌ Failed:', error.message);
-  }
-}
-
-// Run the example if this script is executed directly.
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main();
-}
-
+// Example usage (save image to file)
+// const imageData = await generateCraiyonImage('a dog with a red hat and a smile');
+// console.log('Data URL length:', imageData.length);
 export default generateCraiyonImage;
+// To save as file:
+// const fs = require('fs');
+// fs.writeFileSync('output.png', imageData.split(',')[1], 'base64');
+// console.log('✅ Saved as output.png');
