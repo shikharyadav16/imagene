@@ -1,121 +1,120 @@
 // services/generate.js
-import puppeteer from 'puppeteer';   // Must be 'puppeteer', not 'core'
-import fs from 'fs';
+import puppeteer from "puppeteer";
+import fs from "fs";
 
 function getChromePath() {
-  // If we're on Render, use the exact path we know exists
-  if (process.env.RENDER) {
-    // You can hardcode the version we saw in logs
-    const hardcodedPath = '/opt/render/.cache/puppeteer/chrome/linux-127.0.6533.88/chrome-linux64/chrome';
-    if (fs.existsSync(hardcodedPath)) {
-      console.log(`✅ Using hardcoded Chrome: ${hardcodedPath}`);
-      return hardcodedPath;
-    }
+  // Allow overriding with environment variable
+  if (
+    process.env.PUPPETEER_EXECUTABLE_PATH &&
+    fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)
+  ) {
+    console.log(
+      `✅ Using Chrome from env: ${process.env.PUPPETEER_EXECUTABLE_PATH}`
+    );
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
 
-    // Fallback: try to find dynamically
-    const baseDir = '/opt/render/.cache/puppeteer/chrome';
-    if (fs.existsSync(baseDir)) {
-      const dirs = fs.readdirSync(baseDir).filter(d => d.startsWith('linux-'));
-      if (dirs.length > 0) {
-        const latest = dirs.sort().reverse()[0];
-        const exePath = `${baseDir}/${latest}/chrome-linux64/chrome`;
-        if (fs.existsSync(exePath)) {
-          console.log(`✅ Found Chrome dynamically: ${exePath}`);
-          return exePath;
-        }
-      }
+  // Common Linux locations
+  const candidates = [
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+  ];
+
+  for (const chrome of candidates) {
+    if (fs.existsSync(chrome)) {
+      console.log(`✅ Found Chrome: ${chrome}`);
+      return chrome;
     }
   }
 
-  // For local development, return undefined (let Puppeteer find its bundled Chromium)
-  console.warn('⚠️ Running locally – using bundled Chromium.');
+  console.log("ℹ️ Using Puppeteer's bundled Chromium");
   return undefined;
 }
 
 export default async function generateCraiyonImage(prompt) {
-  let browser = null;
+  let browser;
+
   try {
-    const chromePath = getChromePath();
-    const launchOptions = {
+    const executablePath = getChromePath();
+
+    browser = await puppeteer.launch({
+      executablePath,
       headless: true,
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-blink-features=AutomationControlled',
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-blink-features=AutomationControlled",
       ],
-    };
-    if (chromePath) {
-      launchOptions.executablePath = chromePath;
-    }
-
-    console.log('🚀 Launching browser...');
-    browser = await puppeteer.launch(launchOptions);
+    });
 
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
+
+    await page.setViewport({
+      width: 1280,
+      height: 800,
+    });
+
     await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
     );
 
-    console.log('🌐 Navigating to Craiyon...');
-    await page.goto('https://www.craiyon.com/en', {
-      waitUntil: 'networkidle2',
+    console.log("🌐 Opening Craiyon...");
+
+    await page.goto("https://www.craiyon.com/en", {
+      waitUntil: "networkidle2",
       timeout: 60000,
     });
 
-    await page.waitForSelector('input[type="text"]', { timeout: 30000, visible: true })
-      .catch(() => console.warn('⚠️ Input field not found – continuing.'));
-
-    console.log('✅ Page ready – calling API...');
+    await page.waitForTimeout(3000);
 
     const result = await page.evaluate(async (prompt) => {
-      const payload = {
-        prompt,
-        negative_prompt: '',
-        model: 'auto',
-        aspect_ratio: 'auto',
-        n_images: 1,
-      };
-      const response = await fetch('/api/image/draw', {
-        method: 'POST',
+      const response = await fetch("/api/image/draw", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Accept': '*/*',
-          'Origin': 'https://www.craiyon.com',
-          'Referer': 'https://www.craiyon.com/en',
+          "Content-Type": "application/json",
+          Accept: "*/*",
+          Origin: "https://www.craiyon.com",
+          Referer: "https://www.craiyon.com/en",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          prompt,
+          negative_prompt: "",
+          model: "auto",
+          aspect_ratio: "auto",
+          n_images: 1,
+        }),
       });
+
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`API Error (${response.status}): ${text.slice(0, 200)}`);
+        throw new Error(await response.text());
       }
+
       const data = await response.json();
-      if (data.results && data.results.length > 0) {
-        return { url: data.results[0].url };
+
+      if (!data.results?.length) {
+        throw new Error("No image returned");
       }
-      throw new Error('No image URL in response.');
+
+      return data.results[0].url;
     }, prompt);
 
-    console.log('✅ Image generated – downloading...');
+    const image = await fetch(result);
 
-    const imageResponse = await fetch(result.url);
-    if (!imageResponse.ok) {
-      throw new Error(`Image download failed (${imageResponse.status})`);
+    if (!image.ok) {
+      throw new Error(`Image download failed (${image.status})`);
     }
-    const contentType = imageResponse.headers.get('content-type') || 'image/png';
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-    return `data:${contentType};base64,${base64}`;
 
-  } catch (error) {
-    console.error('❌ Error:', error.message);
-    throw error;
+    const buffer = Buffer.from(await image.arrayBuffer());
+
+    return `data:image/png;base64,${buffer.toString("base64")}`;
   } finally {
     if (browser) {
       await browser.close();
-      console.log('🔄 Browser closed.');
     }
   }
 }
